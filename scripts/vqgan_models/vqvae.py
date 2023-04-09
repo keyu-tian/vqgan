@@ -88,7 +88,8 @@ class VectorQuantizer2(nn.Module):
         # todo: replace einops with permute and reshape
         # z = rearrange(z, 'b c h w -> b h w c').contiguous()
         # z_flattened = z.view(-1, self.e_dim)
-        z_flattened = z.permute(0, 2, 3, 1).reshape(-1, self.e_dim)
+        z = z.permute(0, 2, 3, 1).contiguous()
+        z_flattened = z.view(-1, self.e_dim)
         # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
         
         # todo: replace einops with matmul
@@ -197,17 +198,22 @@ class VQModel(nn.Module):
     def encode(self, x):
         h = self.encoder(x)
         h = self.quant_conv(h)
+        self.quantize.forward
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
     
-    def decode(self, quant):
-        quant = self.post_quant_conv(quant)
-        dec = self.decoder(quant)
+    def decode(self, quant_bchw):
+        quant_bchw = self.post_quant_conv(quant_bchw)
+        dec = self.decoder(quant_bchw)
         return dec
     
-    def decode_code(self, code_b):
-        quant_b = self.post_quant_conv(self.quantize.embedding(code_b)) # todo: self.quantize.embedding(code_b)'s shape could be wrong
-        dec = self.decode(quant_b)
+    def decode_code(self, B, code_b):
+        BHW, C = code_b.shape
+        HW = BHW // B
+        H = W = round(np.sqrt(HW))
+        quant_bchw = self.quantize.embedding(code_b).view(B, H, W, C).permute(0, 3, 1, 2)   # NC => BHWC => BCHW
+        quant_bchw = self.post_quant_conv(quant_bchw) # todo: self.quantize.embedding(code_b)'s shape could be wrong
+        dec = self.decode(quant_bchw)
         return dec
     
     def forward(self, input):

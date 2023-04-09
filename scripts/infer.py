@@ -42,13 +42,14 @@ def load_vqgan_ps16_w16384(ckpt_path=None):
     if ckpt_path is not None:
         sd = torch.load(ckpt_path, map_location="cpu")["state_dict"]
         missing, unexpected = model.load_state_dict(sd, strict=False)
+        unexpected = [k for k in unexpected if not k.startswith('loss.')]
         print(f'missing keys: {missing}')
         print(f'unexpected keys: {unexpected}')
     return model.eval()
 
 
-def preprocess(url, target_image_size=384):
-    resp = requests.get(url)
+def preprocess(img_url, target_image_size=384):
+    resp = requests.get(img_url)
     resp.raise_for_status()
     img = PIL.Image.open(io.BytesIO(resp.content))
     
@@ -80,7 +81,8 @@ def tensor_to_pil(chw):
 def reconstruct_with_vqgan(x_vqgan: torch.Tensor, model16384: VQModel):
     # could also use model(x) for reconstruction but use explicit encoding and decoding here
     old_z_feat_map, emb_loss, [perplexity, min_encodings, min_encoding_indices] = model16384.encode(x_vqgan)
-    z_feat_map = model16384.embedding(min_encoding_indices).view(old_z_feat_map.shape)
+    model16384.quantize.forward
+    z_feat_map = model16384.decode_code(min_encoding_indices)
     assert torch.allclose(old_z_feat_map, z_feat_map)  # todo: remove this
     print(f"VQGAN --- {model16384.__class__.__name__}: latent shape: {old_z_feat_map.shape[2:]}")
     
@@ -106,11 +108,8 @@ def stack_reconstructions(input, x0, x1, x2, x3, titles=[]):
 
 model16384 = load_vqgan_ps16_w16384(ckpt_path="logs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt")
 
-titles = ['Input', 'VQGAN (f16, 16384)']
+x_vqgan = preprocess('https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1')
+print(f'input is of size: {x_vqgan.shape}')
 
-url = 'https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1'
-x_vqgan = preprocess(url)
-
-print(f"input is of size: {x_vqgan.shape}")
 x1 = reconstruct_with_vqgan(x_vqgan, model16384)
-img = stack_reconstructions(tensor_to_pil(x_vqgan[0]), tensor_to_pil(x1[0]), titles=titles)
+img = stack_reconstructions(tensor_to_pil(x_vqgan[0]), tensor_to_pil(x1[0]), titles=['Input', 'VQGAN (f16, 16384)'])
