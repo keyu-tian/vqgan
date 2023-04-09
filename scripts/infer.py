@@ -24,7 +24,7 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 def load_vqgan_ps16_w16384(ckpt_path=None):
     kw = {
         'embed_dim':  256,
-        'n_embed':    1024,
+        'n_embed':    16384,
         'ddconfig':   {
             'double_z': False, 'z_channels': 256, 'resolution': 256, 'in_channels': 3, 'out_ch': 3,
             'ch':       128, 'ch_mult': [1, 1, 2, 2, 4], 'num_res_blocks': 2, 'attn_resolutions': [16],
@@ -33,7 +33,7 @@ def load_vqgan_ps16_w16384(ckpt_path=None):
         'lossconfig': {
             'target': 'taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator',
             'params': {
-                'disc_conditional': False, 'disc_in_channels': 3, 'disc_start': 0, 'disc_weight': 0.8, 'codebook_weight': 1.0
+                'disc_conditional': False, 'disc_in_channels': 3, 'disc_start': 0, 'disc_weight': 0.75, 'disc_num_layers': 2, 'codebook_weight': 1.0
             }
         }
     }
