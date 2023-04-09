@@ -216,7 +216,7 @@ class VQModel(nn.Module):
         quant_bchw = quant_nc.view(B, H, W, C).permute(0, 3, 1, 2)   # NC => BHWC => BCHW
         
         quant_bchw = self.post_quant_conv(quant_bchw) # todo: self.quantize.embedding(code_b)'s shape could be wrong
-        dec = self.decode(quant_bchw)
+        dec = self.decoder(quant_bchw)
         return dec
     
     def forward(self, input):

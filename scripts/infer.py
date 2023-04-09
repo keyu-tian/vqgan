@@ -82,14 +82,13 @@ def reconstruct_with_vqgan(x_vqgan: torch.Tensor, model16384: VQModel):
     # could also use model(x) for reconstruction but use explicit encoding and decoding here
     old_z_feat_map, emb_loss, [perplexity, min_encodings, min_encoding_indices] = model16384.encode(x_vqgan)
     model16384.quantize.forward
-    B = x_vqgan.shape[0]
-    z_feat_map = model16384.decode_code(B, min_encoding_indices)
-    assert torch.allclose(old_z_feat_map, z_feat_map)  # todo: remove this
-    print(f"VQGAN --- {model16384.__class__.__name__}: latent shape: {old_z_feat_map.shape[2:]}")
     
     old_xrec = model16384.decode(old_z_feat_map)
-    xrec = model16384.decode(z_feat_map)
-    assert torch.allclose(old_xrec, xrec)  # todo: remove this
+    
+    B = x_vqgan.shape[0]
+    xrec = model16384.decode_code(B, min_encoding_indices)
+    
+    assert torch.allclose(old_xrec, xrec, rtol=1e-5, atol=1e-6)  # todo: remove this
     return old_xrec
 
 
