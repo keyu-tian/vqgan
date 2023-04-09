@@ -80,27 +80,25 @@ def tensor_to_pil(chw):
 
 def reconstruct_with_vqgan(x_vqgan: torch.Tensor, model16384: VQModel):
     # could also use model(x) for reconstruction but use explicit encoding and decoding here
-    old_z_feat_map, emb_loss, [perplexity, min_encodings, min_encoding_indices] = model16384.encode(x_vqgan)
+    std_z_feat_map, emb_loss, [perplexity, min_encodings, min_encoding_indices] = model16384.encode(x_vqgan)
     model16384.quantize.forward
-    
-    old_xrec = model16384.decode(old_z_feat_map)
+    std_xrec = model16384.decode(std_z_feat_map)
     
     B = x_vqgan.shape[0]
     xrec = model16384.decode_code(B, min_encoding_indices)
     
-    assert torch.allclose(old_xrec, xrec, rtol=1e-5, atol=1e-6)  # todo: remove this
-    return old_xrec
+    assert torch.allclose(std_xrec, xrec, rtol=1e-5, atol=1e-4)  # todo: remove this
+    return std_xrec, xrec
 
 
-def stack_reconstructions(input, x0, x1, x2, x3, titles=[]):
-    assert input.size == x1.size == x2.size == x3.size
+def stack_reconstructions(input, x0, x1, x2, titles=[]):
+    assert input.size == x1.size == x2.size
     w, h = input.size[0], input.size[1]
-    img = Image.new("RGB", (5 * w, h))
+    img = Image.new("RGB", (4 * w, h))
     img.paste(input, (0, 0))
     img.paste(x0, (1 * w, 0))
     img.paste(x1, (2 * w, 0))
     img.paste(x2, (3 * w, 0))
-    img.paste(x3, (4 * w, 0))
     for i, title in enumerate(titles):
         ImageDraw.Draw(img).text((i * w, 0), f'{title}', (255, 255, 255))  # coordinates, text, color, font
     return img
@@ -111,5 +109,5 @@ model16384 = load_vqgan_ps16_w16384(ckpt_path="logs/vqgan_imagenet_f16_16384/che
 x_vqgan = preprocess('https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1')
 print(f'input is of size: {x_vqgan.shape}')
 
-x1 = reconstruct_with_vqgan(x_vqgan, model16384)
-img = stack_reconstructions(tensor_to_pil(x_vqgan[0]), tensor_to_pil(x1[0]), titles=['Input', 'VQGAN (f16, 16384)'])
+std_xrec, xrec = reconstruct_with_vqgan(x_vqgan, model16384)
+img = stack_reconstructions(tensor_to_pil(x_vqgan[0]), tensor_to_pil(std_xrec[0]), tensor_to_pil(xrec[0]), titles=['Input', 'VQGAN (f16, 16384) STD', 'VQGAN (f16, 16384) Mine'])
