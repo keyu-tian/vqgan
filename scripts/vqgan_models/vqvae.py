@@ -208,10 +208,13 @@ class VQModel(nn.Module):
         return dec
     
     def decode_code(self, B, code_b):
-        BHW, C = code_b.shape
+        quant_nc = self.quantize.embedding(code_b)
+        
+        BHW, C = quant_nc.shape
         HW = BHW // B
         H = W = round(np.sqrt(HW))
-        quant_bchw = self.quantize.embedding(code_b).view(B, H, W, C).permute(0, 3, 1, 2)   # NC => BHWC => BCHW
+        quant_bchw = quant_nc.view(B, H, W, C).permute(0, 3, 1, 2)   # NC => BHWC => BCHW
+        
         quant_bchw = self.post_quant_conv(quant_bchw) # todo: self.quantize.embedding(code_b)'s shape could be wrong
         dec = self.decode(quant_bchw)
         return dec
