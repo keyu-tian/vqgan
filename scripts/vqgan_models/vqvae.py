@@ -154,7 +154,7 @@ class VectorQuantizer2(nn.Module):
 class VQModel(nn.Module):
     def __init__(self,
                  ddconfig,
-                 # lossconfig,
+                 lossconfig,
                  n_embed,
                  embed_dim,
                  ckpt_path=None,
