@@ -13,7 +13,7 @@ import torchvision.transforms.functional as TF
 from PIL import Image, ImageDraw
 from torchvision.transforms import InterpolationMode
 
-from .vqgan_models.vqvae import VQModel
+from vqgan_models.vqvae import VQModel
 
 # sys.path.append('.')    # to import from the current directory
 torch.set_grad_enabled(False)
@@ -48,7 +48,7 @@ def load_vqgan_ps16_w16384(ckpt_path=None):
     return model.eval()
 
 
-def preprocess(img_url, target_image_size=384):
+def load_img_to_device(img_url, target_image_size=384):
     resp = requests.get(img_url)
     resp.raise_for_status()
     img = PIL.Image.open(io.BytesIO(resp.content))
@@ -91,14 +91,13 @@ def reconstruct_with_vqgan(x_vqgan: torch.Tensor, model16384: VQModel):
     return std_xrec, xrec
 
 
-def stack_reconstructions(input, x0, x1, x2, titles=[]):
-    assert input.size == x1.size == x2.size
+def stack_reconstructions(input, x0, x1, titles=[]):
+    assert input.size == x1.size
     w, h = input.size[0], input.size[1]
-    img = Image.new("RGB", (4 * w, h))
+    img = Image.new("RGB", (3 * w, h))
     img.paste(input, (0, 0))
     img.paste(x0, (1 * w, 0))
     img.paste(x1, (2 * w, 0))
-    img.paste(x2, (3 * w, 0))
     for i, title in enumerate(titles):
         ImageDraw.Draw(img).text((i * w, 0), f'{title}', (255, 255, 255))  # coordinates, text, color, font
     return img
@@ -106,8 +105,9 @@ def stack_reconstructions(input, x0, x1, x2, titles=[]):
 
 model16384 = load_vqgan_ps16_w16384(ckpt_path="logs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt")
 
-x_vqgan = preprocess('https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1')
+x_vqgan = load_img_to_device('https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1')
 print(f'input is of size: {x_vqgan.shape}')
 
 std_xrec, xrec = reconstruct_with_vqgan(x_vqgan, model16384)
 img = stack_reconstructions(tensor_to_pil(x_vqgan[0]), tensor_to_pil(std_xrec[0]), tensor_to_pil(xrec[0]), titles=['Input', 'VQGAN (f16, 16384) STD', 'VQGAN (f16, 16384) Mine'])
+img
