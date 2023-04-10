@@ -1,8 +1,7 @@
-import importlib
-
 import numpy as np
 import torch
 import torch.nn as nn
+from PIL import Image as PImage
 
 from .ddpm import Decoder, Encoder
 
@@ -172,7 +171,7 @@ class VQModel(nn.Module):
         self.decoder = Decoder(**ddconfig)
         # self.loss = instantiate_from_config(lossconfig)
         self.quantize: VectorQuantizer2 = VectorQuantizer2(n_embed, embed_dim, beta=0.25,
-                                         remap=remap, sane_index_shape=sane_index_shape)
+                                                           remap=remap, sane_index_shape=sane_index_shape)
         self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
         if ckpt_path is not None:
@@ -207,17 +206,28 @@ class VQModel(nn.Module):
         dec = self.decoder(quant_bchw)
         return dec
     
-    def decode_code(self, B, code_b):
-        quant_nc = self.quantize.embedding(code_b)
+    def decode_code(self, B, code_n):
+        quant_nc = self.quantize.embedding(code_n)
         
         BHW, C = quant_nc.shape
         HW = BHW // B
         H = W = round(np.sqrt(HW))
         quant_bchw = quant_nc.view(B, H, W, C).permute(0, 3, 1, 2)   # NC => BHWC => BCHW
         
-        quant_bchw = self.post_quant_conv(quant_bchw) # todo: self.quantize.embedding(code_b)'s shape could be wrong
+        quant_bchw = self.post_quant_conv(quant_bchw) # todo: self.quantize.embedding(code_n)'s shape could be wrong
         dec = self.decoder(quant_bchw)
         return dec
+    
+    def decode_one_img_to_pil(self, code_n) -> PImage.Image:
+        img = self.decode_code(1, code_n)[0].clamp(-1., 1.).add_(1.).div_(2.)
+        img = img.permute(1, 2, 0).cpu().numpy()    # RGB => GBR
+        return PImage.fromarray((255 * img).astype(np.uint8))
+    
+    def decode_code_to_tensor_imgs(self, code_bn):
+        B, N = code_bn.shape    # todo: 怎么写的这么奇怪，重写这个地方
+        img = self.decode_code(B, code_bn.view(-1))
+        img = img.clamp(-1., 1.).add_(1.).div_(2.)
+        return img
     
     def forward(self, input):
         quant, diff, _ = self.encode(input)
@@ -235,3 +245,34 @@ class VQModel(nn.Module):
     #     opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
     #                                 lr=lr, betas=(0.5, 0.9))
     #     return [opt_ae, opt_disc], []
+
+
+def load_vqgan_f16_w16384(ckpt_path, device) -> VQModel:
+    kw = {
+        'embed_dim':  256,
+        'n_embed':    16384,
+        'ddconfig':   {
+            'double_z': False, 'z_channels': 256, 'resolution': 256, 'in_channels': 3, 'out_ch': 3,
+            'ch':       128, 'ch_mult': [1, 1, 2, 2, 4], 'num_res_blocks': 2, 'attn_resolutions': [16],
+            'dropout':  0.0
+        },
+        'lossconfig': {
+            'target': 'taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator',
+            'params': {
+                'disc_conditional': False, 'disc_in_channels': 3, 'disc_start': 0, 'disc_weight': 0.75, 'disc_num_layers': 2, 'codebook_weight': 1.0
+            }
+        }
+    }
+    
+    model = VQModel(**kw).to(device)
+    model.eval()
+    
+    sd = torch.load(ckpt_path, map_location='cpu')['state_dict']
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    unexpected = [k for k in unexpected if not k.startswith('loss.')]
+    print(f'[VQModel create] #para: {sum(p.numel() for p in model.parameters() if p.requires_grad)} M')
+    [p.requires_grad_(False) for p in model.parameters()]
+    print(f'[VQModel load] missing keys: {missing}')
+    print(f'[VQModel load] unexpected keys: {unexpected}')
+    
+    return model

@@ -1,5 +1,10 @@
 """
-git clone https://github.com/keyu-tian/vqgan.git && cd vqgan/scripts && mkdir -p logs/vqgan_imagenet_f16_16384/checkpoints && mkdir -p logs/vqgan_imagenet_f16_16384/configs && wget 'https://heibox.uni-heidelberg.de/f/867b05fc8c4841768640/?dl=1' -O 'logs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt' && wget 'https://heibox.uni-heidelberg.de/f/274fb24ed38341bfa753/?dl=1' -O 'logs/vqgan_imagenet_f16_16384/configs/model.yaml'
+git clone https://github.com/keyu-tian/vqgan.git
+cd vqgan/scripts
+mkdir -p logs/vqgan_imagenet_f16_16384/checkpoints
+mkdir -p logs/vqgan_imagenet_f16_16384/configs
+wget 'https://heibox.uni-heidelberg.de/f/867b05fc8c4841768640/?dl=1' -O 'logs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt'
+wget 'https://heibox.uni-heidelberg.de/f/274fb24ed38341bfa753/?dl=1' -O 'logs/vqgan_imagenet_f16_16384/configs/model.yaml'
 """
 
 import io
@@ -13,42 +18,10 @@ import torchvision.transforms.functional as TF
 from PIL import Image, ImageDraw
 from torchvision.transforms import InterpolationMode
 
-from vqgan_models.vqvae import VQModel
-
-# sys.path.append('.')    # to import from the current directory
-torch.set_grad_enabled(False)
-
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+from vqgan_models.vqvae import VQModel, load_vqgan_f16_w16384
 
 
-def load_vqgan_ps16_w16384(ckpt_path=None):
-    kw = {
-        'embed_dim':  256,
-        'n_embed':    16384,
-        'ddconfig':   {
-            'double_z': False, 'z_channels': 256, 'resolution': 256, 'in_channels': 3, 'out_ch': 3,
-            'ch':       128, 'ch_mult': [1, 1, 2, 2, 4], 'num_res_blocks': 2, 'attn_resolutions': [16],
-            'dropout':  0.0
-        },
-        'lossconfig': {
-            'target': 'taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator',
-            'params': {
-                'disc_conditional': False, 'disc_in_channels': 3, 'disc_start': 0, 'disc_weight': 0.75, 'disc_num_layers': 2, 'codebook_weight': 1.0
-            }
-        }
-    }
-    
-    model = VQModel(**kw).to(DEVICE)
-    if ckpt_path is not None:
-        sd = torch.load(ckpt_path, map_location="cpu")["state_dict"]
-        missing, unexpected = model.load_state_dict(sd, strict=False)
-        unexpected = [k for k in unexpected if not k.startswith('loss.')]
-        print(f'missing keys: {missing}')
-        print(f'unexpected keys: {unexpected}')
-    return model.eval()
-
-
-def load_img_to_device(img_url, target_image_size=384):
+def load_img_to_device(img_url, device, target_image_size=384):
     resp = requests.get(img_url)
     resp.raise_for_status()
     img = PIL.Image.open(io.BytesIO(resp.content))
@@ -62,7 +35,7 @@ def load_img_to_device(img_url, target_image_size=384):
     s = (round(r * img.size[1]), round(r * img.size[0]))
     img = TF.resize(img, s, interpolation=InterpolationMode.LANCZOS)
     img = TF.center_crop(img, output_size=2 * [target_image_size])
-    img = torch.unsqueeze(T.ToTensor()(img), 0).to(DEVICE)
+    img = torch.unsqueeze(T.ToTensor()(img), 0).to(device)
     return img * 2. - 1.  # [0,1] to [-1,1]
 
 
@@ -102,12 +75,19 @@ def stack_reconstructions(input, x0, x1, titles=[]):
         ImageDraw.Draw(img).text((i * w, 0), f'{title}', (255, 255, 255))  # coordinates, text, color, font
     return img
 
+def main():
+    torch.set_grad_enabled(False)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    
+    model16384 = load_vqgan_f16_w16384('logs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt', device)
+    inp = load_img_to_device('https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1', device)
+    print(f'input is of size: {inp.shape}')
+    
+    std_xrec, xrec = reconstruct_with_vqgan(inp, model16384)
+    print(f'std_xrec: {std_xrec.shape}, xrec: {xrec.shape}')
+    img = stack_reconstructions(tensor_to_pil(inp[0]), tensor_to_pil(std_xrec[0]), tensor_to_pil(xrec[0]), titles=['Input', 'VQGAN (f16, 16384) STD', 'VQGAN (f16, 16384) Mine'])
+    img
 
-model16384 = load_vqgan_ps16_w16384(ckpt_path="logs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt")
 
-x_vqgan = load_img_to_device('https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1')
-print(f'input is of size: {x_vqgan.shape}')
-
-std_xrec, xrec = reconstruct_with_vqgan(x_vqgan, model16384)
-img = stack_reconstructions(tensor_to_pil(x_vqgan[0]), tensor_to_pil(std_xrec[0]), tensor_to_pil(xrec[0]), titles=['Input', 'VQGAN (f16, 16384) STD', 'VQGAN (f16, 16384) Mine'])
-img
+if __name__ == '__main__':
+    main()
